@@ -72,13 +72,13 @@ class SolverDDP
      *
      * @return  The total cost around the guess trajectory
      */
-    double calcDiff();
+    double calc_diff();
 
     /**
      * @brief Run the backward pass (Riccati sweep)
      *
      * It assumes that the Jacobian and Hessians of the optimal control problem have been compute
-     * (i.e. `calcDiff()`). The backward pass handles infeasible guess through a modified Riccati
+     * (i.e. `calc_diff()`). The backward pass handles infeasible guess through a modified Riccati
      * sweep: \f{eqnarray*} \mathbf{Q}_{\mathbf{x}_k} &=& \mathbf{l}_{\mathbf{x}_k} +
      * \mathbf{f}^\top_{\mathbf{x}_k} (V_{\mathbf{x}_{k+1}}
      * +

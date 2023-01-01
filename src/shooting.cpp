@@ -8,18 +8,19 @@
 
 #include "allygator/shooting.hpp"
 
-#include <iostream>
 #include <numeric>
 
 namespace allygator
 {
 
 ShootingProblem::ShootingProblem(const Eigen::VectorXd &x0,
-                                 std::vector<std::unique_ptr<ActionModel>> &&running_models,
-                                 std::unique_ptr<ActionModel> &&terminal_model)
-    : cost_(double(0.)), T_(running_models.size()), x0_(x0)
-//   terminal_model_(terminal_model),
-//   running_models_(running_models)
+                                 std::vector<std::unique_ptr<RunningAction>> running_models,
+                                 std::unique_ptr<TerminalAction> terminal_model)
+    : cost_(double(0.)),
+      T_(running_models.size()),
+      x0_(x0),
+      terminal_model_(std::move(terminal_model)),
+      running_models_(std::move(running_models))
 {
 }
 
@@ -31,34 +32,33 @@ void ShootingProblem::calc(const std::vector<Eigen::VectorXd> &xs,
         running_models_[i]->calc(xs[i], us[i]);
     }
 
-    // terminal_model_->calc(xs.back());
+    terminal_model_->calc(xs.back());
 }
 
-void ShootingProblem::calcDiff(const std::vector<Eigen::VectorXd> &xs,
-                               const std::vector<Eigen::VectorXd> &us)
+void ShootingProblem::calc_diff(const std::vector<Eigen::VectorXd> &xs,
+                                const std::vector<Eigen::VectorXd> &us)
 {
     for (std::size_t i = 0; i < T_; ++i)
     {
-        running_models_[i]->calcDiff(xs[i], us[i]);
+        running_models_[i]->calc_diff(xs[i], us[i]);
     }
 
-    // terminal_model_->calcDiff(xs.back());
+    terminal_model_->calc_diff(xs.back());
 }
 
-double ShootingProblem::calcCost()
+double ShootingProblem::calc_cost()
 {
-    return std::accumulate(
-        running_models_.begin(), running_models_.end(), terminal_model_->get_data().cost_,
-        [](double sum, const auto &model) { return sum + model->get_data().cost_; });
+    return std::accumulate(running_models_.begin(), running_models_.end(), terminal_model_->cost_,
+                           [](double sum, const auto &model) { return sum + model->cost_; });
 }
 
 std::size_t ShootingProblem::get_T() const { return T_; }
 
 const Eigen::VectorXd &ShootingProblem::get_x0() const { return x0_; }
 
-ActionModel &ShootingProblem::get_running_model(std::size_t idx) { return *running_models_[idx]; }
+RunningAction &ShootingProblem::get_running_model(std::size_t idx) { return *running_models_[idx]; }
 
-ActionModel &ShootingProblem::get_terminal_model() { return *terminal_model_; }
+TerminalAction &ShootingProblem::get_terminal_model() { return *terminal_model_; }
 
 std::size_t ShootingProblem::get_nx() const { return running_models_[0]->get_nx(); }
 

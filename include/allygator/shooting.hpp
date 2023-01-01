@@ -23,10 +23,10 @@ namespace allygator
  *
  * A shooting problem encapsulates the initial state \f$\mathbf{x}_{0}\in\mathcal{M}\f$, a set of
  * running action models and a terminal action model for a discretized trajectory into \f$T\f$
- * nodes. It has three main methods - `calc`, `calcDiff` and `rollout`. The first computes the set
- * of next states and cost values per each node \f$k\f$. Instead, `calcDiff` updates the derivatives
- * of all action models. Finally, `rollout` integrates the system dynamics. This class is used to
- * decouple problem formulation and resolution.
+ * nodes. It has three main methods - `calc`, `calc_diff` and `rollout`. The first computes the set
+ * of next states and cost values per each node \f$k\f$. Instead, `calc_diff` updates the
+ * derivatives of all action models. Finally, `rollout` integrates the system dynamics. This class
+ * is used to decouple problem formulation and resolution.
  */
 class ShootingProblem
 {
@@ -41,8 +41,8 @@ class ShootingProblem
      * @param[in] terminal_model  Terminal action model
      */
     ShootingProblem(const Eigen::VectorXd& x0,
-                    std::vector<std::unique_ptr<ActionModel> >&& running_models,
-                    std::unique_ptr<ActionModel>&& terminal_model);
+                    std::vector<std::unique_ptr<RunningAction> > running_models,
+                    std::unique_ptr<TerminalAction> terminal_model);
 
     ~ShootingProblem() = default;
 
@@ -70,9 +70,9 @@ class ShootingProblem
      * @param[in] xs  time-discrete state trajectory \f$\mathbf{x_{s}}\f$ (size \f$T+1\f$)
      * @param[in] us  time-discrete control sequence \f$\mathbf{u_{s}}\f$ (size \f$T\f$)
      */
-    void calcDiff(const std::vector<Eigen::VectorXd>& xs, const std::vector<Eigen::VectorXd>& us);
+    void calc_diff(const std::vector<Eigen::VectorXd>& xs, const std::vector<Eigen::VectorXd>& us);
 
-    double calcCost();
+    double calc_cost();
 
     /**
      * @brief Return the number of running nodes
@@ -87,12 +87,12 @@ class ShootingProblem
     /**
      * @brief Return the running models
      */
-    ActionModel& get_running_model(std::size_t idx);
+    RunningAction& get_running_model(std::size_t idx);
 
     /**
      * @brief Return the terminal model
      */
-    ActionModel& get_terminal_model();
+    TerminalAction& get_terminal_model();
 
     /**
      * @brief Return the dimension of the state tuple
@@ -105,11 +105,11 @@ class ShootingProblem
     std::size_t get_ndx() const;
 
    protected:
-    double cost_;                                                //!< Total cost
-    std::size_t T_;                                              //!< number of running nodes
-    Eigen::VectorXd x0_;                                         //!< Initial state
-    std::unique_ptr<ActionModel> terminal_model_;                //!< Terminal action model
-    std::vector<std::unique_ptr<ActionModel> > running_models_;  //!< Running action model
+    double cost_;                                                  //!< Total cost
+    std::size_t T_;                                                //!< number of running nodes
+    Eigen::VectorXd x0_;                                           //!< Initial state
+    std::unique_ptr<TerminalAction> terminal_model_;               //!< Terminal action model
+    std::vector<std::unique_ptr<RunningAction> > running_models_;  //!< Running action model
 };
 
 }  // namespace allygator

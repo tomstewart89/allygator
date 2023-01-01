@@ -71,7 +71,7 @@ bool SolverDDP::solve(const std::vector<Eigen::VectorXd> &init_xs,
     was_feasible_ = false;
 
     problem_.calc(xs_, us_);
-    calcDiff();
+    calc_diff();
 
     for (std::size_t iter = 0; iter < maxiter; ++iter)
     {
@@ -112,7 +112,7 @@ bool SolverDDP::solve(const std::vector<Eigen::VectorXd> &init_xs,
                     cost_ = cost_try_;
 
                     // We need to recalculate the derivatives when the step length passes
-                    calcDiff();
+                    calc_diff();
                     break;
                 }
             }
@@ -146,10 +146,10 @@ bool SolverDDP::solve(const std::vector<Eigen::VectorXd> &init_xs,
     return false;
 }
 
-double SolverDDP::calcDiff()
+double SolverDDP::calc_diff()
 {
-    problem_.calcDiff(xs_, us_);
-    cost_ = problem_.calcCost();
+    problem_.calc_diff(xs_, us_);
+    cost_ = problem_.calc_cost();
 
     if (!is_feasible_)
     {
@@ -158,7 +158,7 @@ double SolverDDP::calcDiff()
         for (std::size_t t = 0; t < problem_.get_T(); ++t)
         {
             const auto &model = problem_.get_running_model(t);
-            fs_[t + 1] = model.get_state().diff(xs_[t + 1], model.get_data().xnext);
+            fs_[t + 1] = model.get_state().diff(xs_[t + 1], model.xnext);
         }
 
         is_feasible_ = std::all_of(fs_.begin(), fs_.end(),
@@ -193,7 +193,7 @@ bool SolverDDP::forwardPass(const double steplength)
         us_try_[t] = us_[t] - k_[t] * steplength - K_[t] * dx;
 
         problem_.get_running_model(t).calc(xs_try_[t], us_try_[t]);
-        xs_try_[t + 1] = problem_.get_running_model(t).get_data().xnext;
+        xs_try_[t + 1] = problem_.get_running_model(t).xnext;
 
         if (raiseIfNaN(xs_try_[t + 1].lpNorm<Eigen::Infinity>()))
         {
@@ -203,7 +203,7 @@ bool SolverDDP::forwardPass(const double steplength)
 
     // problem_.get_terminal_model().calc(xs_try_.back());
 
-    cost_try_ = problem_.calcCost();
+    cost_try_ = problem_.calc_cost();
 
     if (raiseIfNaN(cost_try_))
     {
@@ -218,22 +218,22 @@ bool SolverDDP::backwardPass()
     d_ = Eigen::Vector2d::Zero();
     stop_ = 0.0;
 
-    Vxx_.back() = problem_.get_terminal_model().get_data().Lxx;
+    Vxx_.back() = problem_.get_terminal_model().Lxx;
     Vxx_.back().diagonal().array() += reg_;
-    Vx_.back() = problem_.get_terminal_model().get_data().Lx + Vxx_.back() * fs_.back();
+    Vx_.back() = problem_.get_terminal_model().Lx + Vxx_.back() * fs_.back();
 
     for (int t = static_cast<int>(problem_.get_T()) - 1; t >= 0; --t)
     {
-        const auto &data = problem_.get_running_model(t).get_data();
+        const auto &model = problem_.get_running_model(t);
 
-        MatrixXdRowMajor FxTVxx_p = data.Fx.transpose() * Vxx_[t + 1];
+        MatrixXdRowMajor FxTVxx_p = model.Fx.transpose() * Vxx_[t + 1];
 
-        Eigen::MatrixXd Qxx = data.Lxx + FxTVxx_p * data.Fx;
-        Eigen::MatrixXd Qx = data.Lx + data.Fx.transpose() * Vx_[t + 1];
+        Eigen::MatrixXd Qxx = model.Lxx + FxTVxx_p * model.Fx;
+        Eigen::MatrixXd Qx = model.Lx + model.Fx.transpose() * Vx_[t + 1];
 
-        Eigen::MatrixXd Qxu = data.Lxu + FxTVxx_p * data.Fu;
-        Eigen::MatrixXd Quu = data.Luu + data.Fu.transpose() * Vxx_[t + 1] * data.Fu;
-        Eigen::VectorXd Qu = data.Lu + data.Fu.transpose() * Vx_[t + 1];
+        Eigen::MatrixXd Qxu = model.Lxu + FxTVxx_p * model.Fu;
+        Eigen::MatrixXd Quu = model.Luu + model.Fu.transpose() * Vxx_[t + 1] * model.Fu;
+        Eigen::VectorXd Qu = model.Lu + model.Fu.transpose() * Vx_[t + 1];
 
         Quu.diagonal().array() += reg_;
 

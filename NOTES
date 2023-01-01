@@ -1,0 +1,1 @@
+I just want to extract the dynamics related logic into its own class so that i have a rigid body model that I can pass actions to, get the next state from and get the derivatives of. 
