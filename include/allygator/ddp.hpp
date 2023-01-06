@@ -11,7 +11,7 @@
 #include <Eigen/Cholesky>
 #include <vector>
 
-#include "allygator/shooting.hpp"
+#include "allygator/problem.hpp"
 
 namespace allygator
 {
@@ -48,7 +48,7 @@ namespace allygator
  */
 using MatrixXdRowMajor = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
 
-class SolverDDP
+class DDPSolver
 {
    public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -58,11 +58,10 @@ class SolverDDP
      *
      * @param[in] problem  Shooting problem
      */
-    explicit SolverDDP(ShootingProblem &problem);
-    ~SolverDDP() = default;
+    explicit DDPSolver(Problem &problem);
+    ~DDPSolver() = default;
 
-    bool solve(const std::vector<Eigen::VectorXd> &init_xs,
-               const std::vector<Eigen::VectorXd> &init_us, const std::size_t maxiter = 100,
+    bool solve(const std::vector<StateAction> &init_trajectory, const std::size_t maxiter = 100,
                const bool is_feasible = false, const double regInit = 1e-9);
 
     /**
@@ -135,6 +134,9 @@ class SolverDDP
     std::vector<Eigen::VectorXd> xs_try_;  //!< State trajectory computed by line-search procedure
     std::vector<Eigen::VectorXd> us_try_;  //!< Control trajectory computed by line-search procedure
 
+    std::vector<StateAction> speculative_trajectory_;
+    std::vector<StateAction> trajectory_;
+
     // allocate data
     std::vector<Eigen::MatrixXd> Vxx_;  //!< Hessian of the Value function
     std::vector<Eigen::VectorXd> Vx_;   //!< Gradient of the Value function
@@ -152,7 +154,7 @@ class SolverDDP
     double th_stepinc_ = 0.01;    //!< Step-length threshold used to increase regularization
     bool was_feasible_ = false;   //!< Label that indicates in the previous iterate was feasible
 
-    ShootingProblem &problem_;         //!< optimal control problem
+    Problem &problem_;                 //!< optimal control problem
     std::vector<Eigen::VectorXd> xs_;  //!< State trajectory
     std::vector<Eigen::VectorXd> us_;  //!< Control trajectory
     bool is_feasible_ = false;         //!< Label that indicates is the iteration is feasible

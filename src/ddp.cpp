@@ -1,11 +1,3 @@
-///////////////////////////////////////////////////////////////////////////////
-// BSD 3-Clause License
-//
-// Copyright (C) 2019-2021, LAAS-CNRS, University of Edinburgh, University of Oxford
-// Copyright note valid unless otherwise stated in individual files.
-// All rights reserved.
-///////////////////////////////////////////////////////////////////////////////
-
 #include "allygator/ddp.hpp"
 
 #include <algorithm>
@@ -20,19 +12,22 @@ bool raiseIfNaN(const double value)
 namespace allygator
 {
 
-SolverDDP::SolverDDP(ShootingProblem &problem) : problem_(problem)
+DDPSolver::DDPSolver(Problem &problem)
+    : problem_(problem),
+      trajectory_(problem.make_zero_trajectory()),
+      speculative_trajectory_(problem.make_zero_trajectory())
 {
-    for (std::size_t t = 0; t < problem_.get_T(); ++t)
+    for (std::size_t t = 0; t < problem_.get_num_timesteps(); ++t)
     {
         const std::size_t nu = problem_.get_running_model(t).get_nu();
         const std::size_t nx = problem_.get_running_model(t).get_nx();
         const std::size_t ndx = problem_.get_running_model(t).get_ndx();
 
-        xs_.push_back(Eigen::VectorXd::Zero(nx));
-        xs_try_.push_back(Eigen::VectorXd::Zero(nx));
+        // xs_.push_back(Eigen::VectorXd::Zero(nx));
+        // xs_try_.push_back(Eigen::VectorXd::Zero(nx));
 
-        us_.push_back(Eigen::VectorXd::Zero(nu));
-        us_try_.push_back(Eigen::VectorXd::Zero(nu));
+        // us_.push_back(Eigen::VectorXd::Zero(nu));
+        // us_try_.push_back(Eigen::VectorXd::Zero(nu));
 
         Vxx_.push_back(Eigen::MatrixXd::Zero(ndx, ndx));
         Vx_.push_back(Eigen::VectorXd::Zero(ndx));
@@ -44,9 +39,9 @@ SolverDDP::SolverDDP(ShootingProblem &problem) : problem_(problem)
     const std::size_t nx = problem_.get_terminal_model().get_nx();
     const std::size_t ndx = problem_.get_terminal_model().get_ndx();
 
-    xs_try_[0] = problem_.get_x0();
-    xs_.push_back(Eigen::VectorXd::Zero(nx));
-    xs_try_.push_back(Eigen::VectorXd::Zero(nx));
+    // xs_try_[0] = problem_.get_x0();
+    // xs_.push_back(Eigen::VectorXd::Zero(nx));
+    // xs_try_.push_back(Eigen::VectorXd::Zero(nx));
     Vxx_.push_back(Eigen::MatrixXd::Zero(ndx, ndx));
     Vx_.push_back(Eigen::VectorXd::Zero(ndx));
     fs_.push_back(Eigen::VectorXd::Zero(ndx));
@@ -57,21 +52,20 @@ SolverDDP::SolverDDP(ShootingProblem &problem) : problem_(problem)
     alphas_.back() = std::min(alphas_.back(), th_stepinc_);
 }
 
-bool SolverDDP::solve(const std::vector<Eigen::VectorXd> &init_xs,
-                      const std::vector<Eigen::VectorXd> &init_us, const std::size_t maxiter,
+bool DDPSolver::solve(const std::vector<StateAction> &initial_trajectory, const std::size_t maxiter,
                       const bool is_feasible, const double reginit)
 {
-    xs_try_[0] = problem_.get_x0();  // it is needed in case that init_xs[0] is infeasible
+    // xs_try_[0] = problem_.get_x0();  // it is needed in case that init_xs[0] is infeasible, the
+    // initial state must be feasible, the rest whatever
 
-    std::copy(init_xs.begin(), init_xs.end(), xs_.begin());
-    std::copy(init_us.begin(), init_us.end(), us_.begin());
+    trajectory_ = initial_trajectory;
     is_feasible_ = is_feasible;
 
     reg_ = reginit;
     was_feasible_ = false;
 
-    problem_.calc(xs_, us_);
-    calc_diff();
+    // problem_.calc(xs_, us_); // compute the cost and next states
+    // calc_diff(); // compute all the jacobians and hessians
 
     for (std::size_t iter = 0; iter < maxiter; ++iter)
     {
@@ -146,7 +140,7 @@ bool SolverDDP::solve(const std::vector<Eigen::VectorXd> &init_xs,
     return false;
 }
 
-double SolverDDP::calc_diff()
+double DDPSolver::calc_diff()
 {
     problem_.calc_diff(xs_, us_);
     cost_ = problem_.calc_cost();
@@ -155,7 +149,7 @@ double SolverDDP::calc_diff()
     {
         fs_[0] = problem_.get_running_model(0).get_state().diff(xs_[0], problem_.get_x0());
 
-        for (std::size_t t = 0; t < problem_.get_T(); ++t)
+        for (std::size_t t = 0; t < problem_.get_num_timesteps(); ++t)
         {
             const auto &model = problem_.get_running_model(t);
             fs_[t + 1] = model.get_state().diff(xs_[t + 1], model.xnext);
@@ -185,9 +179,9 @@ double SolverDDP::calc_diff()
  * @param steplength initially 1 but will be set to progressively more conservative values... until
  * something(?) happens
  */
-bool SolverDDP::forwardPass(const double steplength)
+bool DDPSolver::forwardPass(const double steplength)
 {
-    for (std::size_t t = 0; t < problem_.get_T(); ++t)
+    for (std::size_t t = 0; t < problem_.get_num_timesteps(); ++t)
     {
         auto dx = problem_.get_running_model(t).get_state().diff(xs_[t], xs_try_[t]);
         us_try_[t] = us_[t] - k_[t] * steplength - K_[t] * dx;
@@ -201,7 +195,7 @@ bool SolverDDP::forwardPass(const double steplength)
         }
     }
 
-    // problem_.get_terminal_model().calc(xs_try_.back());
+    problem_.get_terminal_model().calc(xs_try_.back());
 
     cost_try_ = problem_.calc_cost();
 
@@ -213,7 +207,7 @@ bool SolverDDP::forwardPass(const double steplength)
     return true;
 }
 
-bool SolverDDP::backwardPass()
+bool DDPSolver::backwardPass()
 {
     d_ = Eigen::Vector2d::Zero();
     stop_ = 0.0;
@@ -222,7 +216,7 @@ bool SolverDDP::backwardPass()
     Vxx_.back().diagonal().array() += reg_;
     Vx_.back() = problem_.get_terminal_model().Lx + Vxx_.back() * fs_.back();
 
-    for (int t = static_cast<int>(problem_.get_T()) - 1; t >= 0; --t)
+    for (int t = static_cast<int>(problem_.get_num_timesteps()) - 1; t >= 0; --t)
     {
         const auto &model = problem_.get_running_model(t);
 
