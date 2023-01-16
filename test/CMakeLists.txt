@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(tiny_sqp_tests)
+project(allygator_tests)
 
 set(CMAKE_CXX_STANDARD 17)
 
@@ -17,11 +17,14 @@ enable_testing()
 
 include_directories("../include")
 
-add_executable(test_numeric_diff test_numeric_diff.cpp)
+add_executable(test_numeric_diff test_numeric_diff.cpp ../src/numeric_diff.cpp)
 target_link_libraries(test_numeric_diff gtest_main Eigen3::Eigen)
 
-add_executable(test_problem test_problem.cpp)
+add_executable(test_problem test_problem.cpp ../src/numeric_diff.cpp)
 target_link_libraries(test_problem gtest_main Eigen3::Eigen)
+
+add_executable(test_solve test_solve.cpp ../src/ddp.cpp ../src/numeric_diff.cpp)
+target_link_libraries(test_solve gtest_main Eigen3::Eigen)
 
 include(GoogleTest)
 

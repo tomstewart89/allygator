@@ -6,7 +6,7 @@ using namespace allygator;
 
 TEST(Problem, ParticleMotion)
 {
-    Eigen::Vector2d target(1.0, 2.0);
+    Eigen::Vector4d target(0, 0, 1.0, 2.0);
     allygator::ParticleMotionProblem problem(target);
 
     Eigen::VectorXd x(4);
@@ -15,7 +15,9 @@ TEST(Problem, ParticleMotion)
     u << 0.0, 0.0;
     x << 0.0, 0.0, 1.0, 2.0;
 
-    std::cout << problem.d_step_d_u(x, u);
+    std::cout << problem.d_step_du(x, u) << "\n\n";
+
+    std::cout << problem.d_step_dx(x, u);
 }
 
 int main(int argc, char** argv)

@@ -3,174 +3,152 @@
 #include <algorithm>
 #include <iostream>
 #include <numeric>
+#include <optional>
 
-bool raiseIfNaN(const double value)
-{
-    return (std::isnan(value) || std::isinf(value) || value >= 1e30);
-}
+bool raiseIfNaN(const double value) { return (std::isnan(value) || value >= 1e30); }
 
 namespace allygator
 {
 
-DDPSolver::DDPSolver(Problem &problem)
-    : problem_(problem),
-      trajectory_(problem.make_zero_trajectory()),
-      speculative_trajectory_(problem.make_zero_trajectory())
+DDPSolver::DDPSolver(Problem &problem) : problem_(problem) {}
+
+std::optional<Trajectory> DDPSolver::solve(Trajectory trajectory, const std::size_t maxiter,
+                                           double reg)
 {
-    for (std::size_t t = 0; t < problem_.get_num_timesteps(); ++t)
-    {
-        const std::size_t nu = problem_.get_running_model(t).get_nu();
-        const std::size_t nx = problem_.get_running_model(t).get_nx();
-        const std::size_t ndx = problem_.get_running_model(t).get_ndx();
+    double cost = problem_.calculate_cost(trajectory);
 
-        // xs_.push_back(Eigen::VectorXd::Zero(nx));
-        // xs_try_.push_back(Eigen::VectorXd::Zero(nx));
-
-        // us_.push_back(Eigen::VectorXd::Zero(nu));
-        // us_try_.push_back(Eigen::VectorXd::Zero(nu));
-
-        Vxx_.push_back(Eigen::MatrixXd::Zero(ndx, ndx));
-        Vx_.push_back(Eigen::VectorXd::Zero(ndx));
-        K_.push_back(Eigen::MatrixXd::Zero(nu, ndx));
-        k_.push_back(Eigen::VectorXd::Zero(nu));
-        fs_.push_back(Eigen::VectorXd::Zero(ndx));
-    }
-
-    const std::size_t nx = problem_.get_terminal_model().get_nx();
-    const std::size_t ndx = problem_.get_terminal_model().get_ndx();
-
-    // xs_try_[0] = problem_.get_x0();
-    // xs_.push_back(Eigen::VectorXd::Zero(nx));
-    // xs_try_.push_back(Eigen::VectorXd::Zero(nx));
-    Vxx_.push_back(Eigen::MatrixXd::Zero(ndx, ndx));
-    Vx_.push_back(Eigen::VectorXd::Zero(ndx));
-    fs_.push_back(Eigen::VectorXd::Zero(ndx));
-
-    std::generate_n(std::back_inserter(alphas_), 10,
-                    [n = 0]() mutable { return 1.0 / pow(2., static_cast<double>(n++)); });
-
-    alphas_.back() = std::min(alphas_.back(), th_stepinc_);
-}
-
-bool DDPSolver::solve(const std::vector<StateAction> &initial_trajectory, const std::size_t maxiter,
-                      const bool is_feasible, const double reginit)
-{
-    // xs_try_[0] = problem_.get_x0();  // it is needed in case that init_xs[0] is infeasible, the
-    // initial state must be feasible, the rest whatever
-
-    trajectory_ = initial_trajectory;
-    is_feasible_ = is_feasible;
-
-    reg_ = reginit;
-    was_feasible_ = false;
-
-    // problem_.calc(xs_, us_); // compute the cost and next states
-    // calc_diff(); // compute all the jacobians and hessians
+    auto rollout = problem_.do_rollout(trajectory);
 
     for (std::size_t iter = 0; iter < maxiter; ++iter)
     {
-        while (!backwardPass())
-        {
-            reg_ *= reg_incfactor_;
+        auto control_law = backward_pass(rollout, reg);
 
-            if (reg_ >= reg_max_)
+        while (!control_law)
+        {
+            reg *= reg_incfactor_;
+
+            if (reg >= reg_max_)
             {
-                return false;
+                return std::nullopt;
             }
+
+            control_law = backward_pass(rollout, reg);
         }
 
-        for (const auto &alpha : alphas_)
+        for (const double steplength : generate_step_sizes())
         {
-            steplength_ = alpha;
+            auto new_trajectory = forward_pass(trajectory, *control_law, steplength);
 
-            if (!forwardPass(steplength_))
+            if (!new_trajectory)
             {
                 continue;
             }
 
+            double new_cost = problem_.calculate_cost(trajectory);
+
             // Calculate the actual change in cost
-            dV_ = cost_ - cost_try_;
+            double dV = cost - new_cost;
 
             // Calculate the expected change in cost
-            dVexp_ = steplength_ * (d_[0] + 0.5 * steplength_ * d_[1]);
+            double dVexp = steplength * (control_law->d[0] + 0.5 * steplength * control_law->d[1]);
 
             // If the step is in the descent direction of the cost
-            if (dVexp_ >= 0)
+            if (dVexp >= 0)
             {
-                if (d_[0] < th_grad_ || !is_feasible_ || dV_ > th_acceptstep_ * dVexp_)
+                if (control_law->d[0] < th_grad_ || !rollout.is_feasible ||
+                    dV > th_acceptstep_ * dVexp)
                 {
-                    was_feasible_ = is_feasible_;
-
-                    std::copy(xs_try_.begin(), xs_try_.end(), xs_.begin());
-                    std::copy(us_try_.begin(), us_try_.end(), us_.begin());
-                    cost_ = cost_try_;
+                    trajectory = *new_trajectory;
+                    cost = new_cost;
 
                     // We need to recalculate the derivatives when the step length passes
-                    calc_diff();
+                    rollout = problem_.do_rollout(trajectory);
+
+                    // If we were only able to take a short step then the quadratic approximation
+                    // probably isn't  very accurate so let's increase the regularisation
+                    if (steplength > th_stepdec_)
+                    {
+                        reg = std::max(reg / reg_decfactor_, reg_min_);
+                    }
+                    // If we were able to take a large step, then we can decrease the regularisation
+                    else if (steplength <= th_stepinc_)
+                    {
+                        reg *= reg_incfactor_;
+
+                        if (reg >= reg_max_)
+                        {
+                            return std::nullopt;
+                        }
+                    }
+
                     break;
                 }
             }
         }
 
-        // If we were only able to take a short step then the quadratic approximation probably isn't
-        // very accurate so let's increase the regularisation
-        if (steplength_ > th_stepdec_)
+        if (rollout.is_feasible && control_law->stop < th_stop_)
         {
-            reg_ = std::max(reg_ / reg_decfactor_, reg_min_);
-        }
-        // If we were able to take a large step, then we can decrease the regularisation
-        else if (steplength_ <= th_stepinc_)
-        {
-            reg_ *= reg_incfactor_;
-
-            if (reg_ >= reg_max_)
-            {
-                return false;
-            }
-        }
-
-        std::cout << "it: " << iter << " " << cost_ << " reg: " << reg_ << "\n";
-
-        if (was_feasible_ && stop_ < th_stop_)
-        {
-            return true;
+            return trajectory;
         }
     }
 
-    return false;
+    return std::nullopt;
 }
 
-double DDPSolver::calc_diff()
+std::optional<ControlLaw> DDPSolver::backward_pass(const Rollout &rollout, const double reg)
 {
-    problem_.calc_diff(xs_, us_);
-    cost_ = problem_.calc_cost();
+    const std::size_t T = problem_.get_num_timesteps();
+    ControlLaw control_law(T);
 
-    if (!is_feasible_)
+    Eigen::MatrixXd Vxx = rollout.Lxx[T];
+    Vxx.diagonal().array() += reg;
+    Eigen::MatrixXd Vx = rollout.Lx[T] + Vxx * rollout.fs[T];
+
+    for (std::size_t t = T - 1; t >= 0; --t)
     {
-        fs_[0] = problem_.get_running_model(0).get_state().diff(xs_[0], problem_.get_x0());
+        MatrixXdRowMajor FxTVxx_p = rollout.Fx[t] * Vxx;
 
-        for (std::size_t t = 0; t < problem_.get_num_timesteps(); ++t)
+        Eigen::MatrixXd Qx = rollout.Lx[t] + rollout.Fx[t].transpose() * Vx;
+        Eigen::VectorXd Qu = rollout.Lu[t] + rollout.Fu[t].transpose() * Vx;
+        Eigen::MatrixXd Qxx = rollout.Lxx[t] + FxTVxx_p * rollout.Fx[t];
+        Eigen::MatrixXd Qxu = rollout.Lxu[t] + FxTVxx_p * rollout.Fu[t];
+        Eigen::MatrixXd Quu = rollout.Luu[t] + rollout.Fu[t].transpose() * Vxx * rollout.Fu[t];
+
+        Quu.diagonal().array() += reg;
+
+        Eigen::LLT<Eigen::MatrixXd> Quu_llt(Quu);
+
+        if (Quu_llt.info() != Eigen::Success)
         {
-            const auto &model = problem_.get_running_model(t);
-            fs_[t + 1] = model.get_state().diff(xs_[t + 1], model.xnext);
+            return std::nullopt;
         }
 
-        is_feasible_ = std::all_of(fs_.begin(), fs_.end(),
-                                   [this](const Eigen::VectorXd &gap)
-                                   { return gap.lpNorm<Eigen::Infinity>() < th_gaptol_; });
-    }
+        control_law.k[t] = Quu_llt.solve(Qu);
+        control_law.K[t] = Quu_llt.solve(Qxu.transpose());
 
-    if (!was_feasible_)
-    {
-        // closing the gaps (because the trajectory is feasible now)
-        for (auto &gap : fs_)
+        Vx = Qx - control_law.K[t].transpose() * Qu + Vxx * rollout.fs[t];
+        Vxx = Qxx - Qxu * control_law.K[t];
+        Vxx.diagonal().array() += reg;
+
+        // Ensure symmetry of Vxx
+        Eigen::MatrixXd Vxx_tmp = 0.5 * (Vxx + Vxx.transpose());
+        Vxx = Vxx_tmp;
+
+        control_law.stop += Qu.squaredNorm();
+
+        // don't know what this is
+        control_law.d[0] += Qu.dot(control_law.k[t]);
+
+        // this is the change in the value at time t
+        control_law.d[1] -= control_law.k[t].dot(Quu * control_law.k[t]);
+
+        if (raiseIfNaN(Vx.lpNorm<Eigen::Infinity>()) || raiseIfNaN(Vxx.lpNorm<Eigen::Infinity>()))
         {
-            gap.setZero();  // ofcourse this gap must already have an inf-norm of lower than
-                            // th_gaptol_ which is crazy small so we probably needn't even do this,
-                            // unless this tiny error is being accumulated somewhere
+            return std::nullopt;
         }
     }
-    return cost_;
+
+    return control_law;
 }
 
 /**
@@ -179,89 +157,27 @@ double DDPSolver::calc_diff()
  * @param steplength initially 1 but will be set to progressively more conservative values... until
  * something(?) happens
  */
-bool DDPSolver::forwardPass(const double steplength)
+std::optional<Trajectory> DDPSolver::forward_pass(const Trajectory &trajectory,
+                                                  const ControlLaw &control_law,
+                                                  const double steplength)
 {
+    Trajectory new_traj;
+    new_traj.x[0] = trajectory.x[0];
+
     for (std::size_t t = 0; t < problem_.get_num_timesteps(); ++t)
     {
-        auto dx = problem_.get_running_model(t).get_state().diff(xs_[t], xs_try_[t]);
-        us_try_[t] = us_[t] - k_[t] * steplength - K_[t] * dx;
+        auto dx = trajectory.x[t] - new_traj.x[t];
+        new_traj.u[t] = trajectory.u[t] - control_law.k[t] * steplength - control_law.K[t] * dx;
 
-        problem_.get_running_model(t).calc(xs_try_[t], us_try_[t]);
-        xs_try_[t + 1] = problem_.get_running_model(t).xnext;
+        new_traj.x[t + 1] = problem_.step(new_traj.x[t], new_traj.u[t]);
 
-        if (raiseIfNaN(xs_try_[t + 1].lpNorm<Eigen::Infinity>()))
+        if (raiseIfNaN(new_traj.x[t + 1].lpNorm<Eigen::Infinity>()))
         {
-            return false;
+            return std::nullopt;
         }
     }
 
-    problem_.get_terminal_model().calc(xs_try_.back());
-
-    cost_try_ = problem_.calc_cost();
-
-    if (raiseIfNaN(cost_try_))
-    {
-        return false;
-    }
-
-    return true;
-}
-
-bool DDPSolver::backwardPass()
-{
-    d_ = Eigen::Vector2d::Zero();
-    stop_ = 0.0;
-
-    Vxx_.back() = problem_.get_terminal_model().Lxx;
-    Vxx_.back().diagonal().array() += reg_;
-    Vx_.back() = problem_.get_terminal_model().Lx + Vxx_.back() * fs_.back();
-
-    for (int t = static_cast<int>(problem_.get_num_timesteps()) - 1; t >= 0; --t)
-    {
-        const auto &model = problem_.get_running_model(t);
-
-        MatrixXdRowMajor FxTVxx_p = model.Fx.transpose() * Vxx_[t + 1];
-
-        Eigen::MatrixXd Qxx = model.Lxx + FxTVxx_p * model.Fx;
-        Eigen::MatrixXd Qx = model.Lx + model.Fx.transpose() * Vx_[t + 1];
-
-        Eigen::MatrixXd Qxu = model.Lxu + FxTVxx_p * model.Fu;
-        Eigen::MatrixXd Quu = model.Luu + model.Fu.transpose() * Vxx_[t + 1] * model.Fu;
-        Eigen::VectorXd Qu = model.Lu + model.Fu.transpose() * Vx_[t + 1];
-
-        Quu.diagonal().array() += reg_;
-
-        Eigen::LLT<Eigen::MatrixXd> Quu_llt(Quu);
-
-        if (Quu_llt.info() != Eigen::Success)
-        {
-            std::cout << "not positive definite I guess";
-            return false;
-        }
-
-        k_[t] = Quu_llt.solve(Qu);
-        K_[t] = Quu_llt.solve(Qxu.transpose());
-
-        Vx_[t] = Qx - K_[t].transpose() * Qu + Vxx_[t] * fs_[t];
-        Vxx_[t] = Qxx - Qxu * K_[t];
-
-        stop_ += Qu.squaredNorm();
-        d_[0] += Qu.dot(k_[t]);           // don't know what this is
-        d_[1] -= k_[t].dot(Quu * k_[t]);  // this is the change in the value at time t
-
-        // Ensure symmetry of Vxx
-        Eigen::MatrixXd Vxx_tmp_ = 0.5 * (Vxx_[t] + Vxx_[t].transpose());
-        Vxx_[t] = Vxx_tmp_;
-        Vxx_[t].diagonal().array() += reg_;
-
-        if (raiseIfNaN(Vx_[t].lpNorm<Eigen::Infinity>()) ||
-            raiseIfNaN(Vxx_[t].lpNorm<Eigen::Infinity>()))
-        {
-            return false;
-        }
-    }
-
-    return true;
+    return new_traj;
 }
 
 }  // namespace allygator
