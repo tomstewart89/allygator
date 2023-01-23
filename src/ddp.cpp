@@ -5,29 +5,29 @@
 #include <numeric>
 #include <optional>
 
-bool raiseIfNaN(const double value) { return (std::isnan(value) || value >= 1e30); }
-
 namespace allygator
 {
 
-DDPSolver::DDPSolver(Problem &problem) : problem_(problem) {}
-
-std::optional<Trajectory> DDPSolver::solve(Trajectory trajectory, const std::size_t maxiter,
-                                           double reg)
+DDPSolver::DDPSolver(Problem &problem, const Params &params, const std::optional<Callback> cb)
+    : problem_(problem), params_(params), cb_(cb)
 {
-    double cost = problem_.calculate_cost(trajectory);
+}
 
+std::optional<Trajectory> DDPSolver::solve(Trajectory trajectory)
+{
+    double reg = params_.reg_init;
+    double cost = problem_.calculate_cost(trajectory);
     auto rollout = problem_.do_rollout(trajectory);
 
-    for (std::size_t iter = 0; iter < maxiter; ++iter)
+    for (std::size_t iter = 0; iter < params_.maxiter; ++iter)
     {
         auto control_law = backward_pass(rollout, reg);
 
         while (!control_law)
         {
-            reg *= reg_incfactor_;
+            reg *= params_.reg_incfactor;
 
-            if (reg >= reg_max_)
+            if (reg >= params_.reg_max)
             {
                 return std::nullopt;
             }
@@ -44,7 +44,7 @@ std::optional<Trajectory> DDPSolver::solve(Trajectory trajectory, const std::siz
                 continue;
             }
 
-            double new_cost = problem_.calculate_cost(trajectory);
+            double new_cost = problem_.calculate_cost(*new_trajectory);
 
             // Calculate the actual change in cost
             double dV = cost - new_cost;
@@ -55,8 +55,8 @@ std::optional<Trajectory> DDPSolver::solve(Trajectory trajectory, const std::siz
             // If the step is in the descent direction of the cost
             if (dVexp >= 0)
             {
-                if (control_law->d[0] < th_grad_ || !rollout.is_feasible ||
-                    dV > th_acceptstep_ * dVexp)
+                if (control_law->d[0] < params_.th_grad || !rollout.is_feasible ||
+                    dV > params_.th_acceptstep * dVexp)
                 {
                     trajectory = *new_trajectory;
                     cost = new_cost;
@@ -66,16 +66,16 @@ std::optional<Trajectory> DDPSolver::solve(Trajectory trajectory, const std::siz
 
                     // If we were only able to take a short step then the quadratic approximation
                     // probably isn't  very accurate so let's increase the regularisation
-                    if (steplength > th_stepdec_)
+                    if (steplength > params_.th_stepdec)
                     {
-                        reg = std::max(reg / reg_decfactor_, reg_min_);
+                        reg = std::max(reg / params_.reg_decfactor, params_.reg_min);
                     }
                     // If we were able to take a large step, then we can decrease the regularisation
-                    else if (steplength <= th_stepinc_)
+                    else if (steplength <= params_.th_stepinc)
                     {
-                        reg *= reg_incfactor_;
+                        reg *= params_.reg_incfactor;
 
-                        if (reg >= reg_max_)
+                        if (reg >= params_.reg_max)
                         {
                             return std::nullopt;
                         }
@@ -86,7 +86,7 @@ std::optional<Trajectory> DDPSolver::solve(Trajectory trajectory, const std::siz
             }
         }
 
-        if (rollout.is_feasible && control_law->stop < th_stop_)
+        if (rollout.is_feasible && control_law->stop < params_.th_stop)
         {
             return trajectory;
         }
@@ -106,7 +106,7 @@ std::optional<ControlLaw> DDPSolver::backward_pass(const Rollout &rollout, const
 
     for (int t = T - 1; t >= 0; --t)
     {
-        MatrixXdRowMajor FxTVxx_p = rollout.Fx[t] * Vxx;
+        Eigen::Matrix<double, -1, -1, Eigen::RowMajor> FxTVxx_p = rollout.Fx[t] * Vxx;
 
         Eigen::MatrixXd Qx = rollout.Lx[t] + rollout.Fx[t].transpose() * Vx;
         Eigen::VectorXd Qu = rollout.Lu[t] + rollout.Fu[t].transpose() * Vx;
@@ -142,7 +142,7 @@ std::optional<ControlLaw> DDPSolver::backward_pass(const Rollout &rollout, const
         // this is the change in the value at time t
         control_law.d[1] -= control_law.k[t].dot(Quu * control_law.k[t]);
 
-        if (raiseIfNaN(Vx.lpNorm<Eigen::Infinity>()) || raiseIfNaN(Vxx.lpNorm<Eigen::Infinity>()))
+        if (is_oob(Vx.lpNorm<Eigen::Infinity>()) || is_oob(Vxx.lpNorm<Eigen::Infinity>()))
         {
             return std::nullopt;
         }
@@ -171,7 +171,7 @@ std::optional<Trajectory> DDPSolver::forward_pass(const Trajectory &trajectory,
 
         new_traj.x[t + 1] = problem_.step(new_traj.x[t], new_traj.u[t]);
 
-        if (raiseIfNaN(new_traj.x[t + 1].lpNorm<Eigen::Infinity>()))
+        if (is_oob(new_traj.x[t + 1].lpNorm<Eigen::Infinity>()))
         {
             return std::nullopt;
         }

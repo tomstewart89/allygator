@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "allygator/problem.hpp"
+#include "allygator/utils.hpp"
 
 namespace allygator
 {
@@ -26,6 +27,9 @@ struct ControlLaw
     Eigen::Vector2d d = Eigen::Vector2d::Zero();
     double stop = 0.0;
 };
+
+using Callback = std::function<void(const Trajectory &, const Rollout &, const ControlLaw &,
+                                    const double cost, const double reg)>;
 
 /**
  * @brief Differential Dynamic Programming (DDP) solver
@@ -57,23 +61,32 @@ struct ControlLaw
  *
  * \sa `backward_pass()` and `forward_pass()`
  */
-using MatrixXdRowMajor = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
+
+struct Params
+{
+    std::size_t maxiter = 100;
+    double reg_init = 1e-9;
+    double reg_incfactor = 10.0;  //!< Regularization factor used to increase the damping value
+    double reg_decfactor = 10.0;  //!< Regularization factor used to decrease the damping value
+    double reg_min = 1e-9;        //!< Minimum allowed regularization value
+    double reg_max = 1e9;         //!< Maximum allowed regularization value
+    double th_grad = 1e-12;       //!< Tolerance of the expected gradient used for testing the step
+    double th_gaptol = 1e-16;     //!< Threshold limit to check non-zero gaps
+    double th_stepdec = 0.5;      //!< Step-length threshold used to decrease regularization
+    double th_stepinc = 0.01;     //!< Step-length threshold used to increase regularization
+    double th_acceptstep = 0.1;   //!< Threshold used for accepting step
+    double th_stop = 1e-9;        //!< Tolerance for stopping the algorithm
+};
 
 class DDPSolver
 {
    public:
-    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+    explicit DDPSolver(Problem &problem, const Params &params,
+                       const std::optional<Callback> cb = std::nullopt);
 
-    /**
-     * @brief Initialize the DDP solver
-     *
-     * @param[in] problem  Shooting problem
-     */
-    explicit DDPSolver(Problem &problem);
     ~DDPSolver() = default;
 
-    std::optional<Trajectory> solve(Trajectory trajectory, const std::size_t maxiter = 100,
-                                    double reg = 1e-9);
+    std::optional<Trajectory> solve(Trajectory trajectory);
 
    private:
     /**
@@ -130,28 +143,14 @@ class DDPSolver
         std::generate_n(std::back_inserter(alphas), 10,
                         [n = 0]() mutable { return 1.0 / pow(2., static_cast<double>(n++)); });
 
-        alphas.back() = std::min(alphas.back(), th_stepinc_);
+        alphas.back() = std::min(alphas.back(), params_.th_stepinc);
 
         return alphas;
     }
 
     Problem &problem_;  //!< optimal control problem
-
-    const double reg_incfactor_ =
-        10.0;  //!< Regularization factor used to increase the damping value
-    const double reg_decfactor_ =
-        10.0;                      //!< Regularization factor used to decrease the damping value
-    const double reg_min_ = 1e-9;  //!< Minimum allowed regularization value
-    const double reg_max_ = 1e9;   //!< Maximum allowed regularization value
-
-    const double th_grad_ =
-        1e-12;  //!< Tolerance of the expected gradient used for testing the step
-    const double th_gaptol_ = 1e-16;  //!< Threshold limit to check non-zero gaps
-    const double th_stepdec_ = 0.5;   //!< Step-length threshold used to decrease regularization
-    const double th_stepinc_ = 0.01;  //!< Step-length threshold used to increase regularization
-
-    const double th_acceptstep_ = 0.1;  //!< Threshold used for accepting step
-    const double th_stop_ = 1e-9;       //!< Tolerance for stopping the algorithm
+    const Params params_;
+    std::optional<const Callback> cb_;
 };
 
 }  // namespace allygator

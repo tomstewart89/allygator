@@ -8,7 +8,7 @@ TEST(Solve, ParticleMotion)
 {
     allygator::ParticleMotionProblem problem(Eigen::Vector4d(0, 0, 1.0, 2.0));
 
-    allygator::DDPSolver solver(problem);
+    allygator::DDPSolver solver(problem, allygator::Params());
 
     auto traj = solver.solve(problem.make_trajectory());
 }
@@ -17,9 +17,11 @@ int main(int argc, char** argv)
 {
     allygator::ParticleMotionProblem problem(Eigen::Vector4d(0, 0, 1.0, 2.0));
 
-    allygator::DDPSolver solver(problem);
+    allygator::DDPSolver solver(problem, allygator::Params());
 
     auto traj = solver.solve(problem.make_trajectory());
+
+    std::cout << (traj.has_value());
 
     return 0;
     // ::testing::InitGoogleTest(&argc, argv);
