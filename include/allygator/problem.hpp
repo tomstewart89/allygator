@@ -11,6 +11,9 @@ struct Trajectory
 {
     std::vector<Eigen::VectorXd> x;
     std::vector<Eigen::VectorXd> u;
+    std::size_t T() const { return u.size(); }
+
+    Trajectory(std::size_t num_timesteps) : x(num_timesteps + 1), u(num_timesteps) {}
 };
 
 struct Rollout
@@ -59,12 +62,12 @@ class Problem
 
     virtual Eigen::MatrixXd d_step_dx(const Eigen::VectorXd& x, const Eigen::VectorXd& u) const
     {
-        return differentiate(std::bind(&Problem::step, this, _1, u), x);
+        return differentiate(std::bind(&Problem::step, this, _1, u), x).transpose();
     }
 
     virtual Eigen::MatrixXd d_step_du(const Eigen::VectorXd& x, const Eigen::VectorXd& u) const
     {
-        return differentiate(std::bind(&Problem::step, this, x, _1), u);
+        return differentiate(std::bind(&Problem::step, this, x, _1), u).transpose();
     }
 
     virtual Eigen::VectorXd d_terminal_cost_dx(const Eigen::VectorXd& x) const
@@ -109,9 +112,9 @@ class Problem
 
     Trajectory make_trajectory() const
     {
-        Trajectory traj;
-        traj.x.resize(get_num_timesteps() + 1, Eigen::VectorXd::Zero(get_num_states()));
-        traj.u.resize(get_num_timesteps(), Eigen::VectorXd::Zero(get_num_controls()));
+        Trajectory traj(get_num_timesteps());
+        std::fill(traj.x.begin(), traj.x.end(), Eigen::VectorXd::Zero(get_num_states()));
+        std::fill(traj.u.begin(), traj.u.end(), Eigen::VectorXd::Zero(get_num_controls()));
         return traj;
     }
 

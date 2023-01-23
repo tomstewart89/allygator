@@ -104,7 +104,7 @@ std::optional<ControlLaw> DDPSolver::backward_pass(const Rollout &rollout, const
     Vxx.diagonal().array() += reg;
     Eigen::MatrixXd Vx = rollout.Lx[T] + Vxx * rollout.fs[T];
 
-    for (std::size_t t = T - 1; t >= 0; --t)
+    for (int t = T - 1; t >= 0; --t)
     {
         MatrixXdRowMajor FxTVxx_p = rollout.Fx[t] * Vxx;
 
@@ -161,7 +161,7 @@ std::optional<Trajectory> DDPSolver::forward_pass(const Trajectory &trajectory,
                                                   const ControlLaw &control_law,
                                                   const double steplength)
 {
-    Trajectory new_traj;
+    Trajectory new_traj(trajectory.T());
     new_traj.x[0] = trajectory.x[0];
 
     for (std::size_t t = 0; t < problem_.get_num_timesteps(); ++t)
