@@ -28,8 +28,19 @@ struct ControlLaw
     double stop = 0.0;
 };
 
-using Callback = std::function<void(const Trajectory &, const Rollout &, const ControlLaw &,
-                                    const double cost, const double reg)>;
+struct SolverState
+{
+    Trajectory &trajectory;
+    Rollout &rollout;
+    ControlLaw &control_law;
+    double cost;
+    double reg;
+    std::size_t iter;
+};
+
+using Callback = std::function<void(const SolverState &)>;
+
+void log_to_stdout(const SolverState &);
 
 /**
  * @brief Differential Dynamic Programming (DDP) solver
@@ -82,7 +93,7 @@ class DDPSolver
 {
    public:
     explicit DDPSolver(Problem &problem, const Params &params,
-                       const std::optional<Callback> cb = std::nullopt);
+                       const Callback cb = std::bind(log_to_stdout, _1));
 
     ~DDPSolver() = default;
 
@@ -150,7 +161,7 @@ class DDPSolver
 
     Problem &problem_;  //!< optimal control problem
     const Params params_;
-    std::optional<const Callback> cb_;
+    const Callback cb_;
 };
 
 }  // namespace allygator

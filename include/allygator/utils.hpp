@@ -8,6 +8,4 @@ namespace allygator
 {
 inline bool is_oob(const double value) { return (std::isnan(value) || value >= 1e30); }
 
-// void log()
-
 }  // namespace allygator

@@ -21,8 +21,6 @@ int main(int argc, char** argv)
 
     auto traj = solver.solve(problem.make_trajectory());
 
-    std::cout << (traj.has_value());
-
     return 0;
     // ::testing::InitGoogleTest(&argc, argv);
     // return RUN_ALL_TESTS();
