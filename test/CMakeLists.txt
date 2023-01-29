@@ -10,6 +10,7 @@ FetchContent_Declare(
 )
 
 find_package (Eigen3 3.3 REQUIRED NO_MODULE)
+find_package(Matplot++ REQUIRED)
 
 FetchContent_MakeAvailable(googletest)
 
@@ -21,7 +22,7 @@ add_executable(test_numeric_diff test_numeric_diff.cpp ../src/numeric_diff.cpp)
 target_link_libraries(test_numeric_diff gtest_main Eigen3::Eigen)
 
 add_executable(test_problem test_problem.cpp ../src/numeric_diff.cpp)
-target_link_libraries(test_problem gtest_main Eigen3::Eigen)
+target_link_libraries(test_problem gtest_main Eigen3::Eigen Matplot++::matplot)
 
 add_executable(test_solve test_solve.cpp ../src/ddp.cpp ../src/numeric_diff.cpp)
 target_link_libraries(test_solve gtest_main Eigen3::Eigen)

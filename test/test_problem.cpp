@@ -1,23 +1,19 @@
 #include <gtest/gtest.h>
+#include <matplot/matplot.h>
 
 #include "allygator/problem.hpp"
+#include "allygator/utils.hpp"
 
 using namespace allygator;
 
 TEST(Problem, ParticleMotion)
 {
-    Eigen::Vector4d target(0, 0, 1.0, 2.0);
-    allygator::ParticleMotionProblem problem(target);
+    allygator::ParticleMotionProblem problem({1.0, 2.0, 0.0, 0.0});
 
-    Eigen::VectorXd x(4);
-    Eigen::VectorXd u(2);
+    auto traj = problem.make_trajectory();
+    std::fill(traj.u.begin(), traj.u.end(), Eigen::Vector2d(0.5, 0.25));
 
-    u << 0.0, 0.0;
-    x << 0.0, 0.0, 1.0, 2.0;
-
-    std::cout << problem.d_step_du(x, u) << "\n\n";
-
-    std::cout << problem.d_step_dx(x, u);
+    auto sim_traj = problem.simulate(traj);
 }
 
 int main(int argc, char** argv)

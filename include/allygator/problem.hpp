@@ -118,6 +118,20 @@ class Problem
         return traj;
     }
 
+    Trajectory simulate(const Trajectory& trajectory) const
+    {
+        Trajectory out(trajectory.T());
+
+        out.x[0] = trajectory.x[0];
+        for (std::size_t t = 0; t < trajectory.T(); ++t)
+        {
+            out.u[t] = trajectory.u[t];
+            out.x[t + 1] = step(out.x[t], trajectory.u[t]);
+        }
+
+        return out;
+    }
+
     Rollout do_rollout(const Trajectory& trajectory) const
     {
         const auto T = get_num_timesteps();

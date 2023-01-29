@@ -7,8 +7,6 @@
 
 namespace allygator
 {
-void log_to_stdout(const SolverState &state) { std::cout << state.iter << std::endl; }
-
 DDPSolver::DDPSolver(Problem &problem, const Params &params, const Callback cb)
     : problem_(problem), params_(params), cb_(cb)
 {
@@ -36,7 +34,7 @@ std::optional<Trajectory> DDPSolver::solve(Trajectory trajectory)
             control_law = backward_pass(rollout, reg);
         }
 
-        cb_(SolverState{trajectory, rollout, *control_law, cost, reg, iter});
+        cb_(State{trajectory, rollout, *control_law, cost, reg, iter});
 
         for (const double steplength : generate_step_sizes())
         {

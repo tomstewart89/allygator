@@ -28,20 +28,6 @@ struct ControlLaw
     double stop = 0.0;
 };
 
-struct SolverState
-{
-    Trajectory &trajectory;
-    Rollout &rollout;
-    ControlLaw &control_law;
-    double cost;
-    double reg;
-    std::size_t iter;
-};
-
-using Callback = std::function<void(const SolverState &)>;
-
-void log_to_stdout(const SolverState &);
-
 /**
  * @brief Differential Dynamic Programming (DDP) solver
  *
@@ -73,33 +59,46 @@ void log_to_stdout(const SolverState &);
  * \sa `backward_pass()` and `forward_pass()`
  */
 
-struct Params
-{
-    std::size_t maxiter = 100;
-    double reg_init = 1e-9;
-    double reg_incfactor = 10.0;  //!< Regularization factor used to increase the damping value
-    double reg_decfactor = 10.0;  //!< Regularization factor used to decrease the damping value
-    double reg_min = 1e-9;        //!< Minimum allowed regularization value
-    double reg_max = 1e9;         //!< Maximum allowed regularization value
-    double th_grad = 1e-12;       //!< Tolerance of the expected gradient used for testing the step
-    double th_gaptol = 1e-16;     //!< Threshold limit to check non-zero gaps
-    double th_stepdec = 0.5;      //!< Step-length threshold used to decrease regularization
-    double th_stepinc = 0.01;     //!< Step-length threshold used to increase regularization
-    double th_acceptstep = 0.1;   //!< Threshold used for accepting step
-    double th_stop = 1e-9;        //!< Tolerance for stopping the algorithm
-};
-
 class DDPSolver
 {
    public:
+    struct Params
+    {
+        std::size_t maxiter = 100;
+        double reg_init = 1e-9;
+        double reg_incfactor = 10.0;  //!< Regularization factor used to increase the damping value
+        double reg_decfactor = 10.0;  //!< Regularization factor used to decrease the damping value
+        double reg_min = 1e-9;        //!< Minimum allowed regularization value
+        double reg_max = 1e9;         //!< Maximum allowed regularization value
+        double th_grad = 1e-12;    //!< Tolerance of the expected gradient used for testing the step
+        double th_gaptol = 1e-16;  //!< Threshold limit to check non-zero gaps
+        double th_stepdec = 0.5;   //!< Step-length threshold used to decrease regularization
+        double th_stepinc = 0.01;  //!< Step-length threshold used to increase regularization
+        double th_acceptstep = 0.1;  //!< Threshold used for accepting step
+        double th_stop = 1e-9;       //!< Tolerance for stopping the algorithm
+    };
+
+    struct State
+    {
+        Trajectory &trajectory;
+        Rollout &rollout;
+        ControlLaw &control_law;
+        double cost;
+        double reg;
+        std::size_t iter;
+    };
+
+    using Callback = std::function<void(const State &)>;
+
     explicit DDPSolver(Problem &problem, const Params &params,
-                       const Callback cb = std::bind(log_to_stdout, _1));
+                       const Callback cb = std::bind(DDPSolver::no_op, _1));
 
     ~DDPSolver() = default;
 
     std::optional<Trajectory> solve(Trajectory trajectory);
 
    private:
+    static void no_op(const State &) {}
     /**
      * @brief Run the backward pass (Riccati sweep)
      *
